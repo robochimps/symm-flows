@@ -100,7 +100,7 @@ if __name__ == "__main__":
     restart = 1 #0 = no restart, 1 = restart from pmax16, 2 = restart from latest iteration
     pmax = int(sys.argv[1])
     nblocks = int(sys.argv[2])#no blocks flows
-    ckpt_dir = f"nh3_se100_iresnet_nblocks_{nblocks}_pmax_{pmax}_sym"
+    ckpt_dir = f"nh3_results/nh3_se100_iresnet_nblocks_{nblocks}_pmax_{pmax}_sym"
     
     batch_size_coo = 5000
     batch_size_qua = 100000
@@ -263,7 +263,7 @@ if __name__ == "__main__":
         epoch_start = 0
     elif restart == 1:
         print(f"restart with parameters stored in folder nh3_se100_iresnet_nblocks_5_pmax_16")
-        params = joblib.load("nh3_se100_iresnet_nblocks_5_pmax_16_sym/"+'params.json') #Load from other folder
+        params = joblib.load("nh3_results/nh3_se100_iresnet_nblocks_5_pmax_16_sym/"+'params.json') #Load from other folder
         epoch_start = 0
     else:
         print(f"restart from the latest-epoch parameters stored in folder '{ckpt_dir}'")
