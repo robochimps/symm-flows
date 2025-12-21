@@ -1,0 +1,26 @@
+name: flows-symm
+channels:
+  - conda-forge
+dependencies:
+  - cmake=4.2.1
+  - jax=0.7.2
+  - ninja=1.13.2
+  - python=3.11.14
+  - pip:
+      - aiofiles==25.1.0
+      - conda-env-export==0.6.2
+      - flax==0.11.0
+      - fsspec==2025.12.0
+      - importlib-metadata==8.7.0
+      - importlib-resources==6.5.2
+      - jaraco.collections==5.1.0
+      - joblib==1.5.3
+      - pip==25.3
+      - platformdirs==4.2.2
+      - psutil==7.1.3
+      - ruamel-yaml-clib==0.2.15
+      - simplejson==3.20.2
+      - tasmanian==8.2
+      - tomli==2.0.1
+      - vibrojet @ git+https://github.com/robochimps/vibrojet.git
+      - wheel==0.45.1

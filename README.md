@@ -10,10 +10,19 @@ This repository implements symmetry-aware invertible residual networks (iResNets
    cd symm-flows
    ```
 
-2. Install dependencies (recommended: use a virtual environment):
+2. Build the environment (recommended: use conda):
    ```sh
-   pip install external_packages/pyhami-0.0.1-py3-none-any.whl
-   pip install jax flax optax joblib tasmanian
+    conda env create -f environment.yml
+   ```
+
+3. Activate the environment:
+   ```sh
+    conda activate flows-symm
+   ```
+
+3. Install the `pyhami` dependency:
+   ```sh
+    pip install external_packages/pyhami-0.0.1-py3-none-any.whl
    ```
 
 ## Usage
@@ -42,15 +51,6 @@ Model parameters and logs are saved in folders named like `nh3_se100_iresnet_nbl
 - `external_packages/pyhami-0.0.1-py3-none-any.whl`: Custom dependency for molecular Hamiltonian and symmetry utilities.
 - `models/`, `hamiltonian/`, `symmetry_functions/`, `basis/`: Imported as submodules in `nh3.py` (expected to be in the same directory or as part of `pyhami`).
 
-## Key Patterns and Conventions
-
-- Symmetry operations (G12 group) are handled via utility functions from `pyhami`.
-- Basis functions and indices are generated with `generate_prod_ind` and Hermite polynomials.
-- Tasmanian sparse grids are used for quadrature and data generation.
-- Model is a custom iResNet2 with symmetry wrappers and SVD-based kernel clipping.
-- Logging and checkpointing use `joblib` and plain text files.
 
 ## References
-
-- See `.github/copilot-instructions.md` for detailed developer and AI agent instructions.
-- For scientific details, refer to the associated publication.
+If you use this work please cite ...
