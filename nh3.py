@@ -1,6 +1,5 @@
 import os
 from functools import partial
-
 import joblib
 import sys
 import os
@@ -11,21 +10,11 @@ import numpy as np
 import optax
 import Tasmanian
 import numpy as np
-from jax.experimental import jet
-from jax.interpreters import ad, batching, mlir
-
 import flax.linen as nn
-
-#Printing options
-#np.set_printoptions(threshold=sys.maxsize)
-
 from jax import config
 from pyhami.keo import Molecule, batch_Gmat, batch_pseudo, Detgmat, dDetgmat
 from pyhami.NH3.nh3_POK import poten as potv
 from pyhami.NH3 import coords_x3y
-from jax.extend.core import Primitive
-
-
 from flows.models.linear import compute_a_b
 from flows.hamiltonian import eigenvalues
 from flows.hamiltonian_sym_newbasis import hamiltonian_podolsky as hamiltonian_podolsky_sym
@@ -35,9 +24,7 @@ from flows.symmetry_functions import g12_character_table, g12_ops, build_U_G12
 from flows.models.invertible_block import ActivationFunction, SingularValues
 from flows.models.models import IResNet2, clip_kernel_svd_multiple
 from flows.basis.direct_basis import generate_prod_ind, hermite_f, dhermite_f
-
 from vibrojet.jet_prim import acos
-
 config.update("jax_enable_x64", True)
 
 
@@ -63,7 +50,6 @@ def _potential(q):
     r1, r2, r3, s4, s5, tau = q
     rho = tau + np.pi / 2
 
-    beta1 = jnp.sqrt(6) / 3 * s4 + 2 * np.pi / 3
     beta2 = -1 / jnp.sqrt(6) * s4 + 1 / jnp.sqrt(2) * s5 + 2 * np.pi / 3
     beta3 = -1 / jnp.sqrt(6) * s4 - 1 / jnp.sqrt(2) * s5 + 2 * np.pi / 3
 
@@ -94,31 +80,24 @@ def ddetg(x):
     return jax.jit(jax.vmap(dDetgmat, in_axes=0))(x)
 
 if __name__ == "__main__":
-    restart = 0 # = no restart, 1 = restart from pmax16, 2 = restart from latest iteration
-    pmax = int(sys.argv[1])
-    nblocks = int(sys.argv[2])#no blocks flows
-    ckpt_dir = f"nh3_results/nh3_se100_iresnet_nblocks_{nblocks}_pmax_{pmax}_sym"
+    restart = int(sys.argv[1]) # = no restart, 1 = restart from pmax16, 2 = restart from latest iteration
+    pmax = 16
+    nblocks = 5 
+    ckpt_dir = f"nh3_checkpoints/nh3_se100_iresnet_nblocks_{nblocks}_pmax_{pmax}_sym"
     
     batch_size_coo = 5000
     batch_size_qua = 100000
     no_train_sets = 1
 
-    #no_points_per_set = [n for n in range(48, 48 + no_train_sets*2,2)]
-    #no_points_per_set += [52]  # add testing set
     no_points_per_set = [n for n in range(48, 48 + no_train_sets*2,2)]
     no_points_per_set += [52]  # add testing set
      
-
-    #polyadd = np.array([4, 4, 4, 2, 2, 1])
     polyadd = np.array([4,4,4,2,2,1])
     select_quanta = lambda ind: np.sum(np.array(ind) * polyadd[:len(ind)]) <= pmax
     
     list_quanta = [np.arange(pmax+1), np.arange(pmax+1), np.arange(pmax+1), np.arange(pmax+1), np.arange(pmax+1), np.arange(pmax+1)]
     quanta = generate_prod_ind(list_quanta, select_quanta)
     nbas = len(quanta)
-    print("######### Number of basis functions #########")
-    print(f"                   {nbas}")
-    print("#############################################")
     
     basis_types = ['hermite','hermite','hermite','hermite','hermite','hermite']
     
@@ -130,7 +109,6 @@ if __name__ == "__main__":
     dpsi_functions = [basis_map[basis_types[i]][1] for i in range(NCOO)]
     
     for iset, n in enumerate(no_points_per_set):
-        # fucking Tasmanian grid (iconic comment -sophie)
         grid = Tasmanian.TasmanianSparseGrid()
         grid.makeGlobalGrid(
             NCOO, 0, n, "qptotal",
@@ -139,13 +117,6 @@ if __name__ == "__main__":
         x = grid.getPoints()
         w = grid.getQuadratureWeights()
         w /= np.prod(np.exp(-(x**2)), axis=-1)
-       
-        print('len grid:',len(x))
-
-        #if iset == 0:
-        #    x,w = symmetrize_grid_c2v(x,w,P_c2v)
-        #    print('len grid after symmetry pruning:',len(x))
-
         len_x = len(x)
         nbatch = int(np.ceil(len_x / batch_size_coo))
         
@@ -158,19 +129,14 @@ if __name__ == "__main__":
             x_train = jnp.array(x.reshape(nbatch,batch_size_coo,NCOO))
             w_train = jnp.array(w.reshape(nbatch,batch_size_coo))
             ind_train = jnp.arange(nbatch)
-            print('padded and batched train grid is of dimension:',np.shape(x_train))
         else:
             x_test = jnp.array(x.reshape(nbatch,batch_size_coo,NCOO))
             w_test = jnp.array(w.reshape(nbatch,batch_size_coo))
             ind_test = jnp.arange(nbatch)
-            print('padded and batched test grid is of dimension:',np.shape(x_test))
-
+        
     # flow model
     xmin = np.min(x_test, axis=(0, 1))
     xmax = np.max(x_test, axis=(0, 1))
-    print(
-        "Min and max values of quadrature coords accross all basis sets:\n", xmin, xmax
-    )
    
     def tanh(x):
         return (jnp.exp(x) - jnp.exp(-x))/(jnp.exp(x) + jnp.exp(-x))
@@ -247,9 +213,6 @@ if __name__ == "__main__":
         _wrapper = wrapper_sym, #No wrapper = Tanh2
     )
 
-    #a = jnp.array([0.10148306, 0.10148306, 0.10148306, 0.29276824, 0.29276824, 0.1514691])
-    #b = jnp.array([1.04394683, 1.04394683, 1.04394683, 0.0,        0.0,        0.0])
-    #model = Linear(a=a, b=b, group = P_g12)
 
     x = np.zeros((1,NCOO))
     if not os.path.exists(ckpt_dir):
@@ -259,10 +222,6 @@ if __name__ == "__main__":
         params = clip_kernel_svd_multiple(params, lipschitz_constant=0.1)
         epoch_start = 0
     elif restart == 1:
-        print(f"restart with parameters stored in folder nh3_se100_iresnet_nblocks_5_pmax_16")
-        params = joblib.load("nh3_results/nh3_se100_iresnet_nblocks_5_pmax_16_sym/"+'params.json') #Load from other folder
-        epoch_start = 0
-    else:
         print(f"restart from the latest-epoch parameters stored in folder '{ckpt_dir}'")
         params = joblib.load(f"{ckpt_dir}/"+'params.json') #Load from own folder
         with open(f"{ckpt_dir}/"+'loss') as f:
@@ -285,7 +244,6 @@ if __name__ == "__main__":
         return rmin,rmax 
     
     rmin,rmax = get_r_min_max(params,x_test)
-    print("Min and max values of physical coords:\n", rmin, rmax)
     
     print('Checking Equivariance of Coordinates')
     r = model_r(params,x_train[0,:,:])
@@ -303,25 +261,25 @@ if __name__ == "__main__":
         bas = quanta,list_quanta,psi_functions,dpsi_functions,NCOO
         grid = x_test,w_test,ind_test
         h = hamiltonian_podolsky_sym(par, bas, grid, model_x, model_r, gmat, detg, ddetg, potential)
-        e, w1, w2 = eigenvalues(h)
+        e, _, _ = eigenvalues(h)
         return e[:no_states], h
 
     eigensolve_jit = partial(jax.jit, static_argnums=(1))(eigensolve)
 
     def eigensolve_sym(par, no_states, U):
-        bas = quanta,list_quanta,psi_functions,dpsi_functions,NCOO
-        grid = x_test,w_test,ind_test
+        bas = quanta,list_quanta, psi_functions, dpsi_functions, NCOO
+        grid = x_test, w_test, ind_test
         h = hamiltonian_podolsky_sym(par, bas, grid, model_x, model_r, gmat, detg, ddetg, potential, U)
-        e, w1, w2 = eigenvalues(h)
+        e, _, _ = eigenvalues(h)
         return e[:no_states], h
 
     eigensolve_sym_jit = partial(jax.jit, static_argnums=(1))(eigensolve_sym)
 
     def loss_grad_fn_sym(par, no_states, U): #Symmetry version
-        bas = quanta,list_quanta,psi_functions,dpsi_functions,NCOO
-        grid = x_train,w_train,ind_train
+        bas = quanta,list_quanta, psi_functions, dpsi_functions, NCOO
+        grid = x_train, w_train, ind_train
         h = hamiltonian_podolsky_sym(par, bas, grid, model_x, model_r, gmat, detg, ddetg, potential, U)
-        e, w1, w2 = eigenvalues(h)
+        _, w1, w2 = eigenvalues(h)
         return jax.value_and_grad(hamiltonian_trace_podolsky_sym)(
             par,
             bas,
@@ -338,10 +296,10 @@ if __name__ == "__main__":
         )
 
     def loss_grad_fn(par, no_states):
-        bas = quanta,list_quanta,psi_functions,dpsi_functions,NCOO
-        grid = x_train,w_train,ind_train #train
+        bas = quanta,list_quanta, psi_functions, dpsi_functions, NCOO
+        grid = x_train, w_train, ind_train #train
         h = hamiltonian_podolsky_sym(par, bas, grid, model_x, model_r, gmat, detg, ddetg, potential)
-        e, w1, w2 = eigenvalues(h)
+        _, w1, w2 = eigenvalues(h)
         return jax.value_and_grad(hamiltonian_trace_podolsky_sym)(
             par,
             bas,
@@ -360,9 +318,6 @@ if __name__ == "__main__":
     print("First few eigenvalues on a test set using initial params:")
     e,h = eigensolve_jit(params, no_states)
     print('loss e',jnp.sum(e))
-    #print(e[0], e[:100] - e[0])
-    #print(*e[:100], sep=", ")
-    #print(quanta)
     
     ### Symmetrization ###
     g12_table = g12_character_table()
@@ -392,12 +347,6 @@ if __name__ == "__main__":
 
     h_sym = U @ h @ U.T #Put Hamiltonian into block-diagonal form
     
-    #np.savetxt('h_nh3_nosym.txt',h)
-    #np.savetxt('h_nh3_sym.txt', h_sym)
-
-    #e_sym, w1_sym, w2_sym = eigenvalues(h_sym)
-    #print(e_sym[0], e_sym[:100] - e_sym[0])
-    ### END Symmetrization ###
     
     model_r_batch = jax.vmap(model_r, in_axes=(None, 0))
     model_x_batch = jax.vmap(model_x, in_axes=(None, 0))
@@ -409,7 +358,6 @@ if __name__ == "__main__":
             return model_x_batch(params, r)
         return jnp.max(jnp.abs(_inversion(params, x) - x))
 
-    print(f"Invertibility {invertibility(params, x_test)}")
     
     # optimisation
     optx = optax.adam(learning_rate=0.001)
@@ -432,7 +380,6 @@ if __name__ == "__main__":
 
     for i in range(epoch_start,10001):
         loss_val, params, opt_state = update_params(params, opt_state, no_states, np.zeros(1))
-        #loss_val, params, opt_state = update_params(params, opt_state, no_states_A1, U_A1p)
         print(i, loss_val)
 
         if i % 1000 == 0: #reinitialize Adam optimizer every 1000th iteration
