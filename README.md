@@ -63,3 +63,7 @@ If you use this code in your research, please cite:
   primaryClass = {phys-chem},
   howpublished = {preprint},
 }
+```
+
+## Contact
+For questions or feedback, feel free to open an issue or reach out to the authors directly _via_ emil.vogt@cfel.de.
