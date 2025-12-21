@@ -1,8 +1,6 @@
 import os
 from functools import partial
-
 import joblib
-import json
 import sys
 import jax
 import jax.numpy as jnp
@@ -11,28 +9,19 @@ import optax
 import Tasmanian
 
 from jax import config
-from jax.experimental.shard_map import shard_map
-from jax.sharding import PartitionSpec as P
-from jax.sharding import NamedSharding
-from numpy.polynomial.hermite import hermgauss
-from pyhami.keo import Molecule, batch_Gmat, batch_dGmat, batch_pseudo, Detgmat, dDetgmat, com
+from pyhami.keo import Molecule, batch_Gmat, batch_pseudo, Detgmat, dDetgmat
 from pyhami.H2CO.h2co_AYTY import poten as potv
 from pyhami.H2CO import coords_x2yz
 
-from .models.linear import compute_a_b
-from .basis.basis import Basis
-from .basis.hermite_custom_jvp import hermite
-from .hamiltonian import hamiltonian_podolsky,hamiltonian_trace_podolsky, eigenvalues
-from .hamiltonian_sym_newbasis import hamiltonian_podolsky as hamiltonian_podolsky_sym
-from .hamiltonian_sym_newbasis import hamiltonian_trace_podolsky as hamiltonian_trace_podolsky_sym
-from .symmetry_functions import symmetrize_grid_c2v, getP, build_U_C2v
-from .models.invertible_block import ActivationFunction, SingularValues
-from .models.models import IResNet2, Linear, clip_kernel_svd_multiple, clip_kernel_svd, Identity
-from .basis.direct_basis import generate_prod_ind, hermite_f, dhermite_f
-from .operator_eval import oper_eval
+from flows.models.linear import compute_a_b
+from flows.hamiltonian import eigenvalues
+from flows.hamiltonian_sym_newbasis import hamiltonian_podolsky as hamiltonian_podolsky_sym
+from flows.hamiltonian_sym_newbasis import hamiltonian_trace_podolsky as hamiltonian_trace_podolsky_sym
+from flows.symmetry_functions import getP, build_U_C2v
+from flows.models.invertible_block import ActivationFunction, SingularValues
+from flows.models.models import IResNet2, clip_kernel_svd_multiple
+from flows.basis.direct_basis import generate_prod_ind, hermite_f, dhermite_f
 
-from .utils import mesh, pad_devices_axis
-from scipy import optimize
 
 config.update("jax_enable_x64", True)
 
@@ -79,10 +68,10 @@ def ddetg(x):
     return jax.jit(jax.vmap(dDetgmat, in_axes=0))(x)
 
 if __name__ == "__main__":
-    restart = 2 #0 = no restart, 1 = restart from pmax16, 2 = restart from latest iteration
-    pmax = int(sys.argv[1])
-    nblocks = int(sys.argv[2])#no blocks flows
-    ckpt_dir = f"h2co_results/h2co_se100_iresnet_nblocks_{nblocks}_pmax_{pmax}_sym_grid"
+    restart = int(sys.argv[1])
+    pmax = 9 # int(sys.argv[1])
+    nblocks = 5 # int(sys.argv[2])#no blocks flows
+    ckpt_dir = f"h2co_checkpoints/h2co_se100_iresnet_nblocks_{nblocks}_pmax_{pmax}_sym"
     
     batch_size_coo = 15000
     #batch_size_coo = 5000
@@ -118,7 +107,6 @@ if __name__ == "__main__":
     P_c2v = getP(permute,invert,NCOO)
 
     for iset, n in enumerate(no_points_per_set):
-        # fucking Tasmanian grid (iconic comment -sophie)
         grid = Tasmanian.TasmanianSparseGrid()
         grid.makeGlobalGrid(
             NCOO, 0, n, "qptotal",
@@ -130,9 +118,6 @@ if __name__ == "__main__":
        
         print('len grid:',len(x))
         
-        #if iset == 0:
-            #x,w = symmetrize_grid_c2v(x,w,P_c2v)
-            #print('len grid after symmetry pruning:',len(x))
         
         len_x = len(x)
         nbatch = int(np.ceil(len_x / batch_size_coo))
@@ -198,10 +183,6 @@ if __name__ == "__main__":
         params = clip_kernel_svd_multiple(params, lipschitz_constant=0.1) #0.1
         epoch_start = 0
     elif restart == 1:
-        print(f"restart with parameters stored in folder h2co_sym_se100_iresnet_nblocks_1_pmax_6")
-        params = joblib.load("h2co_results/h2co_se100_iresnet_nblocks_5_pmax_9_sym_grid/"+'params.json') #Load from other folder
-        epoch_start = 0
-    else:
         print(f"restart from the latest-epoch parameters stored in folder '{ckpt_dir}'")
         params = joblib.load(f"{ckpt_dir}/"+'params.json') #Load from own folder
         with open(f"{ckpt_dir}/"+'loss') as f:
@@ -295,30 +276,10 @@ if __name__ == "__main__":
     U, labels, blocks = build_U_C2v(quanta, swap_pairs=[(1,2),(3,4)], inv_col=5)
     U_A1 = jnp.array(U[blocks["A1"],:])
     
-    #for ir_label, idx in blocks.items():
-    #    U_ = jnp.array(U[idx,:])
-    #    h_ = U_ @ h @ U_.T
-    #    e_sym, _, _ = eigenvalues(h_)
-    #    print(ir_label)
-    #    print(*e_sym[:50], sep=", ")
     
     e_sym,h_sym,_ = eigensolve_sym_jit(params, no_states_A1, U_A1)
     print(e_sym[0], e_sym[:no_states_A1] - e_sym[0])
     print('loss train',jnp.sum(e_sym))
-
-    #h = np.array(h)
-    #h_sym = U @ h @ U.T
-    #order = np.concatenate([blocks["A1"], blocks["A2"], blocks["B1"], blocks["B2"]])
-    #h_block = h_sym[np.ix_(order, order)] 
-    
-    #h[np.abs(h) < 1e-10] = 0
-    #h_sym[np.abs(h_sym) < 1e-10] = 0
-    #print('N_zero h',np.count_nonzero(h==0))
-    #print('N_zero h_sym',np.count_nonzero(h_sym==0))
-    #print('h',np.round(h,2))
-    #print('h_block',np.round(h_block,2))
-    #np.savetxt('h_nosym.txt',h)
-    #np.savetxt('h_block_sym.txt', h_block)
 
     model_r_batch = jax.vmap(model_r, in_axes=(None, 0))
     model_x_batch = jax.vmap(model_x, in_axes=(None, 0))
