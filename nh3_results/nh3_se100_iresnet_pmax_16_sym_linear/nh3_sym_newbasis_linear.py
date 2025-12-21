@@ -2,17 +2,14 @@ import os
 from functools import partial
 
 import joblib
+import json
 import sys
-import os
-os.environ["JAX_PLATFORM_NAME"] = "cpu"  
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 import Tasmanian
 import numpy as np
-from jax.experimental import jet
-from jax.interpreters import ad, batching, mlir
 
 import flax.linen as nn
 
@@ -20,110 +17,32 @@ import flax.linen as nn
 #np.set_printoptions(threshold=sys.maxsize)
 
 from jax import config
-from pyhami.keo import Molecule, batch_Gmat, batch_pseudo, Detgmat, dDetgmat
+from jax.experimental.shard_map import shard_map
+from jax.sharding import PartitionSpec as P
+from jax.sharding import NamedSharding
+from numpy.polynomial.hermite import hermgauss
+from pyhami.keo import Molecule, batch_Gmat, batch_dGmat, batch_pseudo, Detgmat, dDetgmat, com
 from pyhami.NH3.nh3_POK import poten as potv
 from pyhami.NH3 import coords_x3y
-from jax.extend.core import Primitive
+from vibrojet.jet_prim import acos
+from math import factorial
 
+from .models.linear import compute_a_b, Linear
+from .basis.basis import Basis
+from .basis.hermite_custom_jvp import hermite
+from .hamiltonian import hamiltonian_podolsky,hamiltonian_trace_podolsky, eigenvalues
+from .hamiltonian_sym_newbasis import hamiltonian_podolsky as hamiltonian_podolsky_sym
+from .hamiltonian_sym_newbasis import hamiltonian_trace_podolsky as hamiltonian_trace_podolsky_sym
+from .symmetry_functions import symmetrize_grid_c2v, build_P_G12, build_U_C2v
+from .symmetry_functions import g12_character_table, g12_ops, build_U_G12, build_D_G12, build_orbit, build_projector_full
+from .models.invertible_block import ActivationFunction, SingularValues
+from .models.models import IResNet2, Linear, clip_kernel_svd_multiple, clip_kernel_svd, Identity
+from .basis.direct_basis import generate_prod_ind, hermite_f, dhermite_f
 
-from flows.models.linear import compute_a_b
-from flows.hamiltonian import eigenvalues
-from flows.hamiltonian_sym_newbasis import hamiltonian_podolsky as hamiltonian_podolsky_sym
-from flows.hamiltonian_sym_newbasis import hamiltonian_trace_podolsky as hamiltonian_trace_podolsky_sym
-from flows.symmetry_functions import build_P_G12
-from flows.symmetry_functions import g12_character_table, g12_ops, build_U_G12
-from flows.models.invertible_block import ActivationFunction, SingularValues
-from flows.models.models import IResNet2, clip_kernel_svd_multiple
-from flows.basis.direct_basis import generate_prod_ind, hermite_f, dhermite_f
-
-
-acos_p = Primitive("_acos")
-
-
-def acos(a, **kw):
-    return acos_p.bind(a, **kw)
+from .utils import mesh, pad_devices_axis
+from scipy import optimize
 
 config.update("jax_enable_x64", True)
-
-def acos(a, **kw):
-    return acos_p.bind(a, **kw)
-
-
-def acos_impl(a, **kw):
-    return jnp.acos(a)
-
-
-acos_p.def_impl(acos_impl)
-acos_p.multiple_results = False
-
-
-@jax.jit
-def acos_jvp(primals, tangents, **kw):
-    (a,) = primals
-    (da,) = tangents
-    x = acos(a)
-    dx = -1 / jnp.sqrt(1 - a * a) * da
-    return x, dx
-
-
-ad.primitive_jvps[acos_p] = acos_jvp
-
-
-def acos_abstract_eval(a):
-    return ShapedArray(a.shape, a.dtype)
-
-
-acos_p.def_abstract_eval(acos_abstract_eval)
-
-
-def acos_lowering(ctx, a, **kw):
-    return mlir.lower_fun(jnp.acos, multiple_results=False)(ctx, a)
-
-
-mlir.register_lowering(acos_p, acos_lowering)
-
-
-def acos_batch_rule(args, dims):
-    (mat,) = args
-    (dim,) = dims
-    if dim is None:
-        return acos_p(mat), None
-    res = jax.vmap(jnp.acos)(mat)
-    return res, dim
-
-
-batching.primitive_batchers[acos_p] = acos_batch_rule
-
-
-# @jax.jit
-def _acos_taylor_rule(primals_in, series_in, **kw):
-    (x,) = primals_in
-    (series,) = series_in
-
-    primal_out = jnp.acos(x)
-
-    c0, cs = jet.jet(
-        lambda x: lax.div(jnp.ones_like(x), -lax.sqrt(1 - lax.square(x))),
-        (x,),
-        (series,),
-    )
-
-    def scale_(k, j):
-        return 1.0 / (fact(k - j) * fact(j - 1))
-
-    c = [c0] + cs
-    u = [x] + series
-    v = [primal_out] + [None] * len(series)
-    for k in range(1, len(v)):
-        v[k] = fact(k - 1) * sum(
-            scale_(k, j) * c[k - j] * u[j] for j in range(1, k + 1)
-        )
-    primal_out, *series_out = v
-    return primal_out, series_out
-
-
-jet.jet_rules[acos_p] = _acos_taylor_rule
-
 
 #molecule and potential and kinetic energy operators
 
@@ -178,10 +97,9 @@ def ddetg(x):
     return jax.jit(jax.vmap(dDetgmat, in_axes=0))(x)
 
 if __name__ == "__main__":
-    restart = 0 # = no restart, 1 = restart from pmax16, 2 = restart from latest iteration
+    restart = 0 # 0 = no restart, 1 = restart from pmax16, 2 = restart from latest iteration
     pmax = int(sys.argv[1])
-    nblocks = int(sys.argv[2])#no blocks flows
-    ckpt_dir = f"nh3_results/nh3_se100_iresnet_nblocks_{nblocks}_pmax_{pmax}_sym"
+    ckpt_dir = f"nh3_se100_iresnet_pmax_{pmax}_sym_linear"
     
     batch_size_coo = 5000
     batch_size_qua = 100000
@@ -314,23 +232,14 @@ if __name__ == "__main__":
     xshift = jnp.arctanh((rref-b_trans)/a_trans)
     xmax = jnp.array([15.0, 15.0, 15.0, 15.0, 15.0, 15.0])
     xshift = -xshift*xmax
-    model = IResNet2(
-        a=a,
-        b=b,
-        opt_a = False,
-        opt_b = False,
-        xmax=xmax,
-        xshift=xshift,
-        intervals=interval,
-        features=[8, 8, NCOO],
-        activations=[ActivationFunction.LIPSWISH] * nblocks,
-        no_resnet_blocks=nblocks, #5
-        no_inv_iters = 30,
-        svd_method = SingularValues.PAR_CLIP_EQUIVARIANT, #SingularValues.PAR_CLIP_EQUIVARIANT
+    a = jnp.array([0.25, 0.25, 0.25, 0.25, 0.25, 0.15])
+    b = jnp.array([2.0, 2.0, 2.0, 0., 0., 0.])
+    
+    model = Linear(
+        a = a,
+        b = b,
         group = jnp.array(P_g12),
-        _wrapper = wrapper_sym, #No wrapper = Tanh2
     )
-
     #a = jnp.array([0.10148306, 0.10148306, 0.10148306, 0.29276824, 0.29276824, 0.1514691])
     #b = jnp.array([1.04394683, 1.04394683, 1.04394683, 0.0,        0.0,        0.0])
     #model = Linear(a=a, b=b, group = P_g12)
@@ -344,7 +253,7 @@ if __name__ == "__main__":
         epoch_start = 0
     elif restart == 1:
         print(f"restart with parameters stored in folder nh3_se100_iresnet_nblocks_5_pmax_16")
-        params = joblib.load("nh3_results/nh3_se100_iresnet_nblocks_5_pmax_16_sym/"+'params.json') #Load from other folder
+        params = joblib.load("nh3_se100_iresnet_nblocks_5_pmax_16_sym/"+'params.json') #Load from other folder
         epoch_start = 0
     else:
         print(f"restart from the latest-epoch parameters stored in folder '{ckpt_dir}'")
@@ -565,3 +474,4 @@ if __name__ == "__main__":
             print(f"store updated parameters in folder '{ckpt_dir}'")
 
     out_file.close()
+
