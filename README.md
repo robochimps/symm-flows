@@ -27,30 +27,39 @@ This repository implements symmetry-aware invertible residual networks (iResNets
 
 ## Usage
 
-The main workflow is in `nh3.py`, which demonstrates the full pipeline for the NH3 molecule.
+To compute the vibrational spectra of NH$_3$ run
+   ```python
+   python nh3.py {n}
+   ```
 
-To run an experiment:
+from the repository root directory, where 
+    - `n=0` initializes the parameters of the normalizing flow randomly and
+    - `n=1` loads previously installed parameters.
 
-```sh
-python nh3.py <pmax> <nblocks>
-# Example:
-python nh3.py 16 5
-```
+Results for H_2CO can be obtained analogously by running
+   ```python
+   python h2co.py {n}
+   ```
 
-Model parameters and logs are saved in folders named like `nh3_se100_iresnet_nblocks_{nblocks}_pmax_{pmax}_sym`.
+Both scripts produce results using a standard iResNet and a symmetry-aware iResNet, allowing for direct comparison between the two approaches.
 
-### Checkpointing and Restarting
-- Set the `restart` variable in `nh3.py` to control checkpoint loading:
-  - `0`: start fresh
-  - `1`: load from default checkpoint
-  - `2`: load from latest checkpoint
+## Citation
 
-## Project Structure
+If you use this code in your research, please cite:
 
-- `nh3.py`: Main script for data preparation, model definition, training, and evaluation.
-- `external_packages/pyhami-0.0.1-py3-none-any.whl`: Custom dependency for molecular Hamiltonian and symmetry utilities.
-- `models/`, `hamiltonian/`, `symmetry_functions/`, `basis/`: Imported as submodules in `nh3.py` (expected to be in the same directory or as part of `pyhami`).
+>  E. Vogt and Á. F. Corral, Symmtery-aware normalizing flows for computing
+>  vibrational spectra of molecules (submitted). arXiv: eprint:
+>  xxx.yyy (2026)
+>  [DOI:10.48550/XXX](https://doi.org/10.48550/XXX)
 
-
-## References
-If you use this work please cite ...
+```bibtex
+@Misc{Vogt:arXivXXX:YYY,
+  title        = {Symmtery-aware normalizing flows for computing
+>  vibrational spectra of molecules},
+  author       = {Vogt, Emil and Corral Fernández, Álvaro and Saleh, Yahya},
+  year         = 2026,
+  archivePrefix= {arXiv},
+  eprint       = {XXX.YYYYY},
+  primaryClass = {phys-chem},
+  howpublished = {preprint},
+}
