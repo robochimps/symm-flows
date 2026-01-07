@@ -66,7 +66,7 @@ model = IResNet2(
     #_wrapper = Identity, #No wrapper = Tanh2
 )
 
-ckpt_dir = f"h2co_se100_iresnet_nblocks_5_pmax_16_sym"
+ckpt_dir = f"h2co_se100_iresnet_nblocks_5_pmax_9_sym"
 params_folder = './h2co_checkpoints'
 loc = params_folder + f"/{ckpt_dir}/"+'params.json'
 params = joblib.load(loc)
