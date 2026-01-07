@@ -110,7 +110,7 @@ model2 = IResNet2(
 )
 
 ckpt_dir = f"nh3_se100_iresnet_nblocks_5_pmax_16_sym"
-params_folder = './nh3_results'
+params_folder = './nh3_checkpoints'
 loc = params_folder + f"/{ckpt_dir}/"+'params.json'
 params2 = joblib.load(loc)
 print('Params loaded')
