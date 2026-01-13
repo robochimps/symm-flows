@@ -105,7 +105,7 @@ if __name__ == "__main__":
     permute = [jnp.array([[1,3],[2,4]])] #permute 1 with 2 and 3 with 4.
     invert = [jnp.array([5])]            #invert coordinate 5
     P_c2v = getP(permute,invert,NCOO)
-
+    P_c2v = jnp.array(P_c2v)
     for iset, n in enumerate(no_points_per_set):
         grid = Tasmanian.TasmanianSparseGrid()
         grid.makeGlobalGrid(
